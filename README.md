@@ -110,7 +110,7 @@ load on an older one, so building locally against your own glibc is the safe opt
 > by tests; the C++ build of `pyrelink` and running the add-on inside Blender on Linux have **not** been verified
 > against real game files yet. Please report what breaks.
 
-**Requirements:** Python 3.13 (the version bundled with Blender 5.1+), a C++20 compiler (GCC 13+/Clang 16+), CMake 3.25+,
+**Requirements:** Python 3.13 (the version bundled with Blender 5.1+), a C++20 compiler (GCC 13+/Clang 16+), CMake 3.28+,
 Ninja, `git` and an internet connection for the first configure (CMake fetches zlib, zstd, pybind11, DirectXTex,
 DirectXMath, DirectX-Headers and stb), and `blender` (or `BLENDER_EXECUTABLE`) for packaging.
 
