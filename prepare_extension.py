@@ -21,9 +21,12 @@ _LOGGER = logging.getLogger("soulstruct.blender.prepare_extensions")
 _IO_SOULSTRUCT_SOURCE_DIR = Path(__file__).parent / "io_soulstruct"
 _RELEASES_DIR = Path(__file__).parent / "Releases"
 
-# Python version bundled with Blender 5.1+. Wheels (numpy, scipy, zstandard, pyrelink) are collected for the Python that
-# runs this script, so it must match, or the manifest will list wheels Blender cannot install.
-_BLENDER_PYTHON_VERSION = (3, 13)
+# Python version of the target Blender. Blender 5.1+ bundles 3.13, but Blender builds that link the *system* Python
+# (e.g. the Arch/CachyOS `blender` package) can differ (3.14 at the time of writing). Wheels (numpy, scipy, zstandard,
+# pyrelink) are collected for the Python that runs this script, so it must match the target Blender, or the manifest will
+# list wheels Blender cannot install ("This Python version (3.14) isn't compatible with (3.13)").
+# Check yours with: blender --background --python-expr "import sys; print(sys.version)"
+_DEFAULT_BLENDER_PYTHON = "3.13"
 
 
 def detect_blender_platform() -> str:
@@ -217,6 +220,10 @@ PARSER.add_argument(
     help="Skip building the Blender extension ZIP (e.g. to only collect wheels and update the manifest).",
 )
 PARSER.add_argument(
+    "--blender-python", default=_DEFAULT_BLENDER_PYTHON, metavar="X.Y",
+    help="Python version of the target Blender (default: %(default)s). This script must be run with that same Python.",
+)
+PARSER.add_argument(
     "--pypi-soulstruct", action="store_true", default=False,
     help="Collect `soulstruct` and `soulstruct-havok` from PyPI (as pinned in `requirements.txt`) instead of the local "
          "development checkouts of the packages installed in this environment. Use this on any machine that does not "
@@ -248,10 +255,11 @@ def main():
     args = PARSER.parse_args()
 
     if args.update_wheels:
-        if sys.version_info[:2] != _BLENDER_PYTHON_VERSION:
+        running = f"{sys.version_info[0]}.{sys.version_info[1]}"
+        if running != args.blender_python:
             _LOGGER.error(
-                f"Wheels must be collected with Python {_BLENDER_PYTHON_VERSION[0]}.{_BLENDER_PYTHON_VERSION[1]} "
-                f"(Blender 5.1+'s bundled version), but this is Python {sys.version_info[0]}.{sys.version_info[1]}."
+                f"Wheels must be collected with the same Python as the target Blender ({args.blender_python}, set with "
+                f"`--blender-python`), but this is Python {running}."
             )
             return 1
         if update_wheels(

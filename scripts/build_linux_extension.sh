@@ -4,7 +4,10 @@
 # Usage:  scripts/build_linux_extension.sh /path/to/Firelink [--no-build-extension]
 #
 # Environment:
-#   PYTHON              Python 3.13 interpreter to use (default: python3.13)
+#   BLENDER_PYTHON      Python version of YOUR Blender (default: 3.13, what blender.org builds bundle). Blender packages
+#                       that use the system Python (Arch/CachyOS) may need e.g. 3.14. Check with:
+#                         blender --background --python-expr "import sys; print(sys.version)"
+#   PYTHON              Python interpreter to use (default: python$BLENDER_PYTHON; must be that version)
 #   BLENDER_EXECUTABLE  Blender 5.1+ binary used for `extension build` (default: `blender` from PATH)
 #   BUILD_VENV          Directory of the throw-away build virtualenv (default: ./.build-venv)
 #
@@ -20,13 +23,18 @@ shift
 EXTRA_ARGS=("$@")
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PYTHON="${PYTHON:-python3.13}"
-BUILD_VENV="${BUILD_VENV:-$REPO_DIR/.build-venv}"
+BLENDER_PYTHON="${BLENDER_PYTHON:-3.13}"
+PYTHON="${PYTHON:-python$BLENDER_PYTHON}"
+if [[ "$BLENDER_PYTHON" == "3.13" ]]; then
+    BUILD_VENV="${BUILD_VENV:-$REPO_DIR/.build-venv}"
+else
+    BUILD_VENV="${BUILD_VENV:-$REPO_DIR/.build-venv-$BLENDER_PYTHON}"
+fi
 
 [[ -f "$FIRELINK_DIR/pyproject.toml" ]] || { echo "Not a Firelink checkout: $FIRELINK_DIR" >&2; exit 1; }
-command -v "$PYTHON" >/dev/null || { echo "Python 3.13 not found (set PYTHON=...)." >&2; exit 1; }
-"$PYTHON" -c 'import sys; sys.exit(0 if sys.version_info[:2] == (3, 13) else 1)' \
-    || { echo "$PYTHON is not Python 3.13 (needed to match Blender 5.1+)." >&2; exit 1; }
+command -v "$PYTHON" >/dev/null || { echo "Python $BLENDER_PYTHON not found (set PYTHON=...)." >&2; exit 1; }
+"$PYTHON" -c "import sys; sys.exit(0 if '%d.%d' % sys.version_info[:2] == '$BLENDER_PYTHON' else 1)" \
+    || { echo "$PYTHON is not Python $BLENDER_PYTHON (it must match your Blender's Python)." >&2; exit 1; }
 for tool in cmake ninja git; do
     command -v "$tool" >/dev/null || { echo "Missing required tool: $tool" >&2; exit 1; }
 done
@@ -49,6 +57,7 @@ python prepare_extension.py \
     --update-wheels \
     --pypi-soulstruct \
     --platform linux-x64 \
+    --blender-python "$BLENDER_PYTHON" \
     --no-build-isolation \
     --firelink-source-dir "$FIRELINK_DIR" \
     ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
