@@ -40,6 +40,8 @@ python -m pip install --upgrade pip wheel
 # Build backend for pyrelink (installed here so `--no-build-isolation` rebuilds are fast), plus what
 # `prepare_extension.py` imports (soulstruct + havok pinned as in requirements.txt).
 python -m pip install "scikit-build-core>=0.10" pybind11
+# `colorama` is imported by soulstruct-havok but not declared as one of its dependencies.
+python -m pip install colorama
 python -m pip install $(grep -E '^(soulstruct|soulstruct-havok)==' "$REPO_DIR/io_soulstruct/requirements.txt")
 
 cd "$REPO_DIR"
