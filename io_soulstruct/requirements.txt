@@ -3,3 +3,5 @@
 soulstruct==2.6.0
 soulstruct-havok==1.5.0
 pyrelink==0.3.4
+# Imported by soulstruct-havok but not declared as one of its dependencies, so it must be listed explicitly.
+colorama==0.4.6
