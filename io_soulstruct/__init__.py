@@ -3,7 +3,7 @@
 Primarily tested and maintained for Dark Souls Remastered. See README.md for table of supported games and file types.
 
 This Blender Extension uses the apparatus created in Blender 4.2 -- all Python dependencies are included as wheels
-for all supported platforms (currently only Windows AMD64).
+for all supported platforms (Windows AMD64 and Linux x86-64; see the "Linux" section of README.md).
 
 If you would like to use this extension in development mode, you can use the `install_extension.py` and/or
 `prepare_extension.py` scripts in the root of the extension's GitHub repo:
@@ -35,6 +35,14 @@ except ModuleNotFoundError:
         "This should have been done automatically by the extension. Try restarting Blender or "
         "uninstalling and reinstalling the add-on."
     )
+
+
+# Install platform shims BEFORE anything else from this extension is imported. On Linux this replaces Soulstruct's use of
+# the Windows-only `texconv.exe` with `pyrelink`; it must run first because Soulstruct and this extension bind
+# `texconv` by name at import time. (No-op on Windows.)
+from . import platform_compat
+
+platform_compat.install()
 
 
 # Reload all Soulstruct modules, then all modules in this add-on (except this script).

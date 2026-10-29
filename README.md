@@ -22,6 +22,7 @@ ecosystem.
 - [Game Support](#game-support)
   - [Other Features](#other-features)
 - [Installation](#installation)
+  - [Linux](#linux)
 - [Basic Usage](#basic-usage)
 - [Format Information](#format-information)
   - [FLVER Models](#flver-models)
@@ -98,6 +99,47 @@ the extension from source. To do this, follow these steps:
 The source code also comes with scripts `prepare_extension.py` for building dependency wheels and `install_extension.py`
 for manually injecting the current Python source code into Blender's local user Extensions directory, which makes
 development and testing easier.
+
+### Linux
+
+The extension can run on Linux (x86-64) with **Blender 5.1+**, but there is **no prebuilt Linux release**: the bundled
+`pyrelink` C++ module has to be compiled on your machine (a wheel built on a recent distribution will not necessarily
+load on an older one, so building locally against your own glibc is the safe option).
+
+> **Status:** the Linux port is new. The text-encoding layer and the texture-conversion shim described below are covered
+> by tests; the C++ build of `pyrelink` and running the add-on inside Blender on Linux have **not** been verified
+> against real game files yet. Please report what breaks.
+
+**Requirements:** Python 3.13 (the version bundled with Blender 5.1+), a C++20 compiler (GCC 13+/Clang 16+), CMake 3.25+,
+Ninja, `git` and an internet connection for the first configure (CMake fetches zlib, zstd, pybind11, DirectXTex,
+DirectXMath, DirectX-Headers and stb), and `blender` (or `BLENDER_EXECUTABLE`) for packaging.
+
+```bash
+git clone https://github.com/Grimrukh/Firelink.git        # the C++ library behind pyrelink
+./scripts/build_linux_extension.sh /path/to/Firelink      # builds pyrelink, collects wheels, builds the .zip in ./Releases
+```
+
+Then install the resulting `.zip` from `Edit > Preferences > Add-ons > Install from Disk`. For development you can inject
+the current source into an installed copy with `python install_extension.py 5.1` (supports `--config-dir`, Flatpak and
+Snap layouts, and the `BLENDER_USER_CONFIG_DIR` / `XDG_CONFIG_HOME` variables).
+
+Things that differ from Windows:
+
+- **Oodle (Sekiro / Elden Ring only).** Those games compress files with Oodle Kraken. Oodle is proprietary and cannot be
+  shipped with this extension; Linux needs a copy of `liboo2corelinux64.so` (or `liboo2corelinux64.so.9`, etc.), e.g. from
+  a game or tool you own. Point to it with the `FIRELINK_OODLE_PATH` environment variable (file or directory) or put it
+  in the game folder / the Steam `Common` folder. Games that do not use `DCX_KRAK` (Demon's Souls, Dark Souls 1-3, Bloodborne) do not need it.
+- **Textures.** On Windows, `soulstruct` runs `texconv.exe`. On Linux the extension replaces that call with `pyrelink`'s
+  built-in DirectXTex DDS<->PNG/TGA conversion (via `io_soulstruct/platform_compat.py`). It only supports the options
+  Soulstruct uses (`-o -ft -f -m -dx10 -nologo -y`); other formats fail with an explicit error rather than silently.
+- **Text encoding.** Shift-JIS (CP932) strings in FLVER/MSB/etc. are handled by built-in tables instead of the Win32 API.
+- **Steam paths.** The file browser starts from the usual Steam library folders (`~/.local/share/Steam`, `~/.steam/steam`,
+  the Flatpak location and `/run/media/$USER`). Proton prefixes are not needed: point the add-on at the game's install folder.
+- **Case sensitivity.** Windows paths are case-insensitive, Linux ones are not. Game folders extracted by some tools use
+  lowercase names while the game's archives use mixed case; if files are "not found" check the case of folder/file names first.
+- **Windows-only features.** `CompressAnim.exe` (spline compression used for cutscene animation export) has no Linux
+  replacement, so that single export option is unavailable. The Dark Souls Remastered / Elden Ring memory hooks in Firelink are Windows-only
+  and are not part of the add-on.
 
 Whenever you update an add-on in Blender, you will need to either restart Blender (recommended) or call the 
 `Reload Scripts` function from Blender.

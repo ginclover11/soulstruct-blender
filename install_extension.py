@@ -1,10 +1,15 @@
 """Scripts for directly installing the extension and/or `soulstruct` into Blender.
 
+Works on Windows and Linux (and macOS paths, though `pyrelink` has no macOS build). The Blender user configuration
+directory is detected automatically; override it with `--config-dir` (e.g. for portable or Flatpak/Snap installs) or the
+`BLENDER_USER_CONFIG_DIR` environment variable.
+
 Modes:
-  --inject-extension     Copy extension source directly into Blender AppData extensions (dev).
+  --inject-extension     Copy extension source directly into the Blender user extensions directory (dev).
   --inject-soulstruct    Inject soulstruct/soulstruct-havok source into Blender site-packages (dev, no pip).
   --install-pyrelink     Pip-install pyrelink from a local Firelink source dir into Blender site-packages.
-  --install-from-zip     Use `blender.exe` to install a built extension .zip (production testing).
+  --install-from-zip     Use the `blender` executable to install a built extension .zip (production testing). Set the
+                         `BLENDER_EXECUTABLE` environment variable if `blender` is not on your PATH.
 """
 
 import argparse
@@ -29,32 +34,68 @@ _ALWAYS_IGNORE = [
 
 _IO_SOULSTRUCT_SOURCE_DIR = Path(__file__).parent / "io_soulstruct"
 
+# Set from `--config-dir`; takes priority over auto-detection.
+_CONFIG_DIR_OVERRIDE: Path | None = None
+
 
 # ---- Helpers -------------------------------------------------------------------------
 
+def _blender_executable() -> str:
+    """Blender command to run: `$BLENDER_EXECUTABLE` if set, else `blender` (on PATH)."""
+    return os.environ.get("BLENDER_EXECUTABLE") or "blender"
+
+
+def _get_config_dir(bl_version: str) -> Path:
+    """Return Blender's per-version user directory, i.e. the folder that contains `extensions/` (and `config/`)."""
+    if _CONFIG_DIR_OVERRIDE is not None:
+        return _CONFIG_DIR_OVERRIDE
+    if env_dir := os.environ.get("BLENDER_USER_CONFIG_DIR"):
+        return Path(env_dir).expanduser()
+
+    if sys.platform.startswith("win"):
+        return Path(f"~/AppData/Roaming/Blender Foundation/Blender/{bl_version}").expanduser()
+    if sys.platform == "darwin":
+        return Path(f"~/Library/Application Support/Blender/{bl_version}").expanduser()
+
+    # Linux and other XDG platforms. Blender honors `$XDG_CONFIG_HOME`; sandboxed packages keep their own config roots.
+    xdg_config_home = Path(os.environ.get("XDG_CONFIG_HOME") or "~/.config").expanduser()
+    candidates = [
+        xdg_config_home / f"blender/{bl_version}",
+        Path(f"~/.var/app/org.blender.Blender/config/blender/{bl_version}").expanduser(),  # Flatpak
+        Path(f"~/snap/blender/current/.config/blender/{bl_version}").expanduser(),  # Snap
+    ]
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    return candidates[0]  # standard location (reported in the error message if it does not exist)
+
+
 def _get_py_ver(bl_version: str) -> str:
-    return "python3.13" if bl_version >= "5.2" else "python3.11"
+    """Python folder name that Blender `bl_version` uses (fallback only; see `_get_local_site_packages`)."""
+    try:
+        major, minor = (int(part) for part in bl_version.split(".")[:2])
+    except ValueError:
+        return "python3.13"
+    return "python3.13" if (major, minor) >= (5, 1) else "python3.11"
 
 
 def _get_local_site_packages(bl_version: str) -> Path:
-    py_ver = _get_py_ver(bl_version)
-    return Path(
-        f"~/AppData/Roaming/Blender Foundation/Blender/{bl_version}"
-        f"/extensions/.local/lib/{py_ver}/site-packages"
-    ).expanduser()
+    lib_dir = _get_config_dir(bl_version) / "extensions/.local/lib"
+    # Prefer whichever `pythonX.Y` folder Blender has actually created, over guessing its Python version.
+    existing = sorted(lib_dir.glob("python3.*"), reverse=True) if lib_dir.is_dir() else []
+    py_ver = existing[0].name if existing else _get_py_ver(bl_version)
+    return lib_dir / py_ver / "site-packages"
 
 
 def _get_extension_dir(bl_version: str, is_install_from_disk: bool = True) -> Path:
     user = "user_default" if is_install_from_disk else "blender_org"
-    return Path(
-        f"~/AppData/Roaming/Blender Foundation/Blender/{bl_version}/extensions/{user}/io_soulstruct"
-    ).expanduser()
+    return _get_config_dir(bl_version) / f"extensions/{user}/io_soulstruct"
 
 
 # ---- Install actions -----------------------------------------------------------------
 
 def inject_extension(bl_version: str = "5.2", is_install_from_disk: bool = True) -> int:
-    """Copy extension source directly into Blender AppData extensions (dev mode)."""
+    """Copy extension source directly into Blender's user extensions directory (dev mode)."""
     if not _IO_SOULSTRUCT_SOURCE_DIR.is_dir():
         _LOGGER.error("Cannot find `io_soulstruct` next to script.")
         return 1
@@ -163,7 +204,7 @@ def pip_install_pyrelink(
 
 
 def blender_install_extension(zip_path: Path, bl_version: str = "5.2") -> int:
-    """Use `blender.exe` to install a built extension .zip (production test mode).
+    """Use `blender` to install a built extension .zip (production test mode).
 
     Equivalent to installing from disk via Blender's Extensions preferences.
     Updates the bundled wheels in Blender's .local site-packages.
@@ -173,7 +214,7 @@ def blender_install_extension(zip_path: Path, bl_version: str = "5.2") -> int:
         return 1
 
     blender_cmd = [
-        "blender", "--command", "extension", "install-file",
+        _blender_executable(), "--command", "extension", "install-file",
         "--enable",
         "--repo", "user_default",
         str(zip_path),
@@ -200,7 +241,7 @@ PARSER.add_argument(
 )
 PARSER.add_argument(
     "--inject-extension", action="store_true", default=True,
-    help="Copy extension source directly into Blender AppData extensions (dev mode).",
+    help="Copy extension source directly into Blender's user extensions directory (dev mode).",
 )
 PARSER.add_argument(
     "--inject-soulstruct", action="store_true", default=False,
@@ -221,12 +262,20 @@ PARSER.add_argument(
 )
 PARSER.add_argument(
     "--install-from-zip", type=Path, default=None, metavar="ZIP",
-    help="Path to a built extension .zip. Uses blender.exe to install it properly (production test mode).",
+    help="Path to a built extension .zip. Uses the `blender` executable to install it properly (production test mode).",
+)
+PARSER.add_argument(
+    "--config-dir", type=Path, default=None, metavar="DIR",
+    help="Blender's per-version user directory (the folder containing 'extensions'), overriding auto-detection. "
+         "E.g. '~/.config/blender/5.1' on Linux.",
 )
 
 
 def main(args):
+    global _CONFIG_DIR_OVERRIDE
     parsed = PARSER.parse_args(args)
+    if parsed.config_dir:
+        _CONFIG_DIR_OVERRIDE = parsed.config_dir.expanduser()
 
     if parsed.inject_extension:
         if result := inject_extension(parsed.blenderversion):

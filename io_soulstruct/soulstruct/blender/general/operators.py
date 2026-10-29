@@ -16,6 +16,7 @@ import bpy
 
 from soulstruct.games import GameType
 
+from ....platform_compat import steam_common_locations  # extension root: general -> blender -> soulstruct -> io_soulstruct
 from ..base.operators import *
 from ..base.register import io_soulstruct_operator
 from .game_config import BLENDER_GAME_CONFIG
@@ -24,13 +25,8 @@ if tp.TYPE_CHECKING:
     from .game_structure import GameStructure
 
 
-STEAM_COMMON_LOCATIONS = [
-    Path(f"{drive}:/Program Files (x86)/Steam/steamapps/common")
-    for drive in "CDEFGH"
-] + [
-    Path(f"{drive}:/Steam/steamapps/common")
-    for drive in "CDEFGH"
-]
+# Windows drive letters on Windows; the usual Steam library folders (native, `~/.steam`, Flatpak, removable media) on Linux.
+STEAM_COMMON_LOCATIONS = steam_common_locations()
 
 
 _DETECTED_MAP_ENUM_ITEMS = []  # type: list[tuple[str, str, str]]

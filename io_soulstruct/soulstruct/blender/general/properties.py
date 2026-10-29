@@ -358,6 +358,10 @@ class SoulstructSettings(bpy.types.PropertyGroup):  # NOT a `SoulstructPropertyG
         provided it, later games never need to look again. The game directory is checked before the project
         directory, since users have no reason to copy the DLL into a project directory themselves.
 
+        On Linux, a Windows `oo2core_6_win64.dll` cannot be loaded, so `pyrelink` instead looks in the same directories
+        for a Linux build of Oodle (`liboo2corelinux64.so*`), which the user must supply themselves. It also honors the
+        `FIRELINK_OODLE_PATH` environment variable (a library file or its directory). See the README's Linux section.
+
         Returns `True` if Oodle is available (whether just loaded or already loaded), `False` otherwise.
         """
         if not self.game_config.requires_oodle:
@@ -366,7 +370,7 @@ class SoulstructSettings(bpy.types.PropertyGroup):  # NOT a `SoulstructPropertyG
             return True
         for root_path in (self.game_root_path, self.project_root_path):
             if root_path and root_path.is_dir() and pyre_core.load_oodle_dll(str(root_path)):
-                _LOGGER.info(f"Loaded Oodle DLL from: {root_path}")
+                _LOGGER.info(f"Loaded Oodle library from: {root_path}")
                 return True
         return False
 

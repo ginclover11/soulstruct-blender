@@ -5,6 +5,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## Unreleased
 
+### Added
+- Linux (x86-64) support, built from source (see README "Linux"):
+  - `platform_compat.py` replaces the `texconv.exe` calls of `soulstruct` with `pyrelink` DirectXTex conversion.
+  - `install_extension.py` and `prepare_extension.py` are cross-platform (`--config-dir`, `--platform`,
+    `--pypi-soulstruct`, `BLENDER_EXECUTABLE`); new `scripts/build_linux_extension.sh`.
+  - Steam library discovery on Linux (native, `~/.steam`, Flatpak, removable media).
+- Requires a Firelink version with Linux support (CP932 tables, Oodle `dlopen`, DDS mip/PNG support).
+
+### Changed
+- `requirements.txt` pins now match the shipped manifest (`soulstruct` 2.6.0, `soulstruct-havok` 1.5.0).
+
+### Known limitations (Linux)
+- `CompressAnim.exe` (cutscene spline compression) is Windows-only.
+- Oodle (Sekiro / Elden Ring) needs a user-supplied `liboo2corelinux64.so`.
+
 ---
 
 ## [3.2.1] - 2026-09-27

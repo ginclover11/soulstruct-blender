@@ -5,6 +5,7 @@
 import argparse
 import logging
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -19,6 +20,31 @@ _LOGGER = logging.getLogger("soulstruct.blender.prepare_extensions")
 
 _IO_SOULSTRUCT_SOURCE_DIR = Path(__file__).parent / "io_soulstruct"
 _RELEASES_DIR = Path(__file__).parent / "Releases"
+
+# Python version bundled with Blender 5.1+. Wheels (numpy, scipy, zstandard, pyrelink) are collected for the Python that
+# runs this script, so it must match, or the manifest will list wheels Blender cannot install.
+_BLENDER_PYTHON_VERSION = (3, 13)
+
+
+def detect_blender_platform() -> str:
+    """Return the Blender manifest `platforms` tag for the machine running this script."""
+    machine = platform.machine().lower()
+    is_arm = machine in {"arm64", "aarch64"}
+    if sys.platform.startswith("win"):
+        return "windows-arm64" if is_arm else "windows-x64"
+    if sys.platform == "darwin":
+        return "macos-arm64" if is_arm else "macos-x64"
+    if sys.platform.startswith("linux"):
+        if is_arm:
+            raise RuntimeError("Blender does not offer a `linux-arm64` extension platform. Pass `--platform` to override.")
+        return "linux-x64"
+    raise RuntimeError(f"Unsupported host platform: {sys.platform}. Pass `--platform` to override.")
+
+
+def blender_executable() -> str:
+    """Blender executable to use for `extension build`. Override with `BLENDER_EXECUTABLE` (needed on Linux if
+    `blender` is not on `PATH`, or when using a Flatpak/tarball install)."""
+    return os.environ.get("BLENDER_EXECUTABLE") or "blender"
 
 
 def read_requirements() -> list[str]:
@@ -96,8 +122,14 @@ def update_wheels(
 
     return 0
 
-def update_blender_manifest_wheels():
-    """Update Blender manifest from all 'wheels'."""
+def update_blender_manifest_wheels(blender_platform: str | None = None):
+    """Update Blender manifest from all 'wheels', and its `platforms` entry to `blender_platform` (default: this host).
+
+    The wheels are platform-specific (numpy, scipy, zstandard, pyrelink), so `platforms` must agree with the machine they
+    were collected on. NOTE: running this on Linux rewrites the committed Windows manifest; do not commit that change.
+    """
+    if blender_platform is None:
+        blender_platform = detect_blender_platform()
     wheels_dir = _IO_SOULSTRUCT_SOURCE_DIR / "wheels"
     requirements = read_requirements()
 
@@ -122,10 +154,15 @@ def update_blender_manifest_wheels():
 
     new_manifest = manifest_lines[:wheels_start_line_index + 1] + wheel_lines + manifest_lines[wheels_end_line_index:]
 
+    platforms_indices = [i for i, line in enumerate(new_manifest) if line.startswith("platforms")]
+    if len(platforms_indices) != 1:
+        raise RuntimeError("Expected exactly one `platforms = [...]` line in `blender_manifest.toml`.")
+    new_manifest[platforms_indices[0]] = f'platforms = ["{blender_platform}"]'
+
     _LOGGER.info("Manifest wheels: " + "".join(wheel_lines))
 
     # Write new manifest.
-    manifest_path.write_text("\n".join(new_manifest))
+    manifest_path.write_text("\n".join(new_manifest) + "\n")
 
     _LOGGER.info("Successfully updated `io_soulstruct/blender_manifest.toml`.")
 
@@ -146,14 +183,17 @@ def blender_extension_build():
     _RELEASES_DIR.mkdir(parents=True, exist_ok=True)
 
     blender_cmd = [
-        "blender", "--command", "extension", "build", "--output-dir", str(_RELEASES_DIR),
+        blender_executable(), "--command", "extension", "build", "--output-dir", str(_RELEASES_DIR),
     ]
 
     _LOGGER.info(f"blender cmd: {' '.join(blender_cmd)}")
     try:
         subprocess.check_output(blender_cmd)
-    except subprocess.CalledProcessError as ex:
-        _LOGGER.error(f"Failed to build `blender` extension. Error: {ex}")
+    except (subprocess.CalledProcessError, FileNotFoundError) as ex:
+        _LOGGER.error(
+            f"Failed to build `blender` extension. Error: {ex}\n"
+            f"If `blender` is not on your PATH, set the `BLENDER_EXECUTABLE` environment variable to its full path."
+        )
         os.chdir(current_dir)
         return 1
 
@@ -171,6 +211,20 @@ PARSER.add_argument(
 PARSER.add_argument(
     "--build-extension", action="store_true", default=True,
     help="Whether to build the Blender extension ZIP package or not (default: True)."
+)
+PARSER.add_argument(
+    "--no-build-extension", dest="build_extension", action="store_false",
+    help="Skip building the Blender extension ZIP (e.g. to only collect wheels and update the manifest).",
+)
+PARSER.add_argument(
+    "--pypi-soulstruct", action="store_true", default=False,
+    help="Collect `soulstruct` and `soulstruct-havok` from PyPI (as pinned in `requirements.txt`) instead of the local "
+         "development checkouts of the packages installed in this environment. Use this on any machine that does not "
+         "have the author's local soulstruct repositories (i.e. almost always, including Linux).",
+)
+PARSER.add_argument(
+    "--platform", default=None,
+    help="Blender manifest platform tag to write (e.g. `linux-x64`, `windows-x64`). Default: detected from this host.",
 )
 PARSER.add_argument(
     "--firelink-source-dir",
@@ -194,16 +248,24 @@ def main():
     args = PARSER.parse_args()
 
     if args.update_wheels:
-        update_wheels(
+        if sys.version_info[:2] != _BLENDER_PYTHON_VERSION:
+            _LOGGER.error(
+                f"Wheels must be collected with Python {_BLENDER_PYTHON_VERSION[0]}.{_BLENDER_PYTHON_VERSION[1]} "
+                f"(Blender 5.1+'s bundled version), but this is Python {sys.version_info[0]}.{sys.version_info[1]}."
+            )
+            return 1
+        if update_wheels(
             firelink_source_dir=args.firelink_source_dir,
-            use_local_soulstruct=True,
+            use_local_soulstruct=not args.pypi_soulstruct,
             no_build_isolation=args.no_build_isolation,
-        )
-        update_blender_manifest_wheels()
+        ):
+            return 1
+        update_blender_manifest_wheels(args.platform)
 
     if args.build_extension:
-        blender_extension_build()
+        return blender_extension_build()
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    sys.exit(main())
