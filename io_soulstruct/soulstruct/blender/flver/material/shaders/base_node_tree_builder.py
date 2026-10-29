@@ -82,7 +82,13 @@ class BaseNodeTreeBuilder(abc.ABC):
         if not self.material.node_tree:
             raise ValueError("Material has no shader node tree.")
         self.tree = self.material.node_tree
-        self.output = self.tree.nodes["Material Output"]
+        # Find the output node by TYPE, never by name. Blender translates the default names of new nodes when the UI
+        # language is not English ('New Data' translation, e.g. "Salida de material" in Spanish), so
+        # `nodes["Material Output"]` raises `KeyError` there. If there is no output node at all, create one.
+        self.output = next((n for n in self.tree.nodes if n.bl_idname == "ShaderNodeOutputMaterial"), None)
+        if self.output is None:
+            self.output = self.tree.nodes.new("ShaderNodeOutputMaterial")
+        self.output.name = "Material Output"
 
     @abc.abstractmethod
     def build(self) -> None:
@@ -176,8 +182,8 @@ class BaseNodeTreeBuilder(abc.ABC):
         self.tree.links.clear()
         # Remove all nodes except Material Output.
         for node in tuple(self.tree.nodes):
-            if node.name != "Material Output":
-                self.tree.nodes.remove(self.tree.nodes[node.name])
+            if node != self.output:
+                self.tree.nodes.remove(node)
 
         # Build vertex color nodes.
         self.vertex_colors_nodes = [
